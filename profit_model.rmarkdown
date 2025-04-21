@@ -1,0 +1,77 @@
+---
+title: "profit_model"
+format: html
+editor_options: 
+  chunk_output_type: console
+---
+
+
+
+## Read in libraries and data
+
+
+```{r}
+#read in libraries
+
+library(tidyverse)
+library(here)
+library(janitor)
+```
+
+```{r}
+# read in data
+
+data <- read_table(here("clim.txt")) |> 
+  clean_names()
+```
+
+
+
+## Profit Model
+
+
+```{r}
+
+almond_yield_profit <- function(data, baseline_yield = 1,
+                                yearly_cost = 3500,
+                                baseline_price = 4000){
+
+data_filter <- data |> 
+  filter(month == 2 | month == 1) |> 
+  group_by(month, year) |> 
+  summarize(mean_min_temp = mean(tmin_c),
+            total_precip = sum(precip)) |> 
+  ungroup() |> 
+  pivot_wider(
+    names_from = month,
+    values_from = c(mean_min_temp, total_precip)
+  ) |> 
+  select(-mean_min_temp_1, - total_precip_2) |> 
+  mutate(yield_anomaly = (-0.015 * mean_min_temp_2 - 0.0046 * mean_min_temp_2^2 - 0.07 * total_precip_1 + 0.0043 * total_precip_1^2 + 0.28),
+         total_yield = baseline_yield + yield_anomaly,
+         price_per_ton = baseline_price + -1.04 * yield_anomaly,
+         revenue = price_per_ton * total_yield - yearly_cost
+         ) 
+  results <- data_filter %>% 
+    select(year, revenue)
+  
+  return(results)
+}
+
+almond_yield_profit(data)
+```
+
+
+
+## Simple Informal Sensitiviy Analysis
+
+
+```{r}
+deviation <- 0.15
+base_thresh <- 10000
+ethresh <- runif(
+  min = base_thresh - deviation * base_thresh,
+  max = base_thresh + deviation * base_thresh, n = 40
+)
+```
+
