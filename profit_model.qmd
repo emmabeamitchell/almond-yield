@@ -45,7 +45,7 @@ data_filter <- data |>
          revenue = price_per_ton * total_yield - yearly_cost
          ) 
   results <- data_filter %>% 
-    select(year, revenue)
+    select(year, revenue, total_yield)
   
   return(results)
 }
@@ -54,29 +54,8 @@ almond_yield_profit(data)
 ```
 
 ## Simple Informal Sensitiviy Analysis
-```{r}
-deviation <- 0.15
-baseline_yield <- 1
-baseline_price <- 4000
-
-runif(
-  min_yield = baseline_yield - deviation * baseline_yield,
-  max_yield = baseline_yield + deviation * baseline_yield, n = 40
-)
-
-runif(
-  min_price = baseline_prie - deviation * baseline_price,
-  max_price = baseline_price + deviation * baseline_price, n = 40
-)
-```
-
 
 ```{r}
-# Sensitivity Analysis for Almond Yield and Price Function
-library(dplyr)
-library(purrr)
-library(ggplot2)
-
 # Define parameter ranges
 nsamples <- 300
 deviation <- 0.15
@@ -97,34 +76,6 @@ baseline_price <- runif(
 # Combine parameters into a data frame
 parameters <- cbind.data.frame(baseline_yield, baseline_price)
 
-# Define the almond_yield_profit function
-almond_yield_profit <- function(data, baseline_yield = 1,
-                                yearly_cost = 3500,
-                                baseline_price = 4000) {
-  data_filter <- data %>%
-    filter(month == 2 | month == 1) %>%
-    group_by(month, year) %>%
-    summarize(mean_min_temp = mean(tmin_c),
-              total_precip = sum(precip), .groups = "drop") %>%
-    pivot_wider(
-      names_from = month,
-      values_from = c(mean_min_temp, total_precip)
-    ) %>%
-    select(-mean_min_temp_1, -total_precip_2) %>%
-    mutate(
-      yield_anomaly = (-0.015 * mean_min_temp_2 - 0.0046 * mean_min_temp_2^2 - 
-                       0.07 * total_precip_1 + 0.0043 * total_precip_1^2 + 0.28),
-      total_yield = baseline_yield + yield_anomaly,
-      price_per_ton = baseline_price - 1.04 * yield_anomaly,
-      revenue = price_per_ton * total_yield - yearly_cost
-    )
-  
-  results <- data_filter %>%
-    summarize(mean_revenue = mean(revenue), .groups = "drop")
-  
-  return(results)
-}
-
 # Simulate results with varying parameters using pmap
 sensitivity_results <- parameters %>%
   pmap(function(baseline_yield, baseline_price) {
@@ -135,77 +86,100 @@ sensitivity_results <- parameters %>%
     )
   })
 
-# Extract results and combine with parameter values
-sensitivity_results <- bind_rows(sensitivity_results) %>%
-  bind_cols(parameters)
+# Combine the list of results into a single data frame
+sensitivity_results_combined <- bind_rows(sensitivity_results, .id = "simulation")
 
-# Visualize results
-# Scatter plot of mean revenue vs parameters
-ggplot(sensitivity_results, aes(baseline_yield, mean_revenue, col = baseline_price)) +
-  geom_point() +
-  labs(
-    x = "Baseline Yield (tons per acre)",
-    y = "Mean Revenue ($)",
-    color = "Baseline Price ($)"
-  )
+# Add a simulation ID to the parameters
+parameters_with_id <- parameters %>%
+  mutate(simulation = as.character(1:n()))
 
-# Boxplot for mean revenue
-ggplot(sensitivity_results, aes(as.factor(round(baseline_price, -2)), mean_revenue)) +
-  geom_boxplot() +
-  labs(
-    x = "Baseline Price ($)",
-    y = "Mean Revenue ($)"
-  )
+# Join the parameters with the combined results based on the simulation ID
+final_results <- sensitivity_results_combined %>%
+  left_join(parameters_with_id, by = "simulation")
+
+# View the final results
+head(final_results)
 
 ```
 
 ```{r}
-library(dplyr)
-library(tidyr)
 library(ggplot2)
-library(purrr)
+library(dplyr)
 
-# Set up parameter uncertainty
-set.seed(123) # For reproducibility
-nsamples <- 300
-baseline_yield_range <- runif(nsamples, min = 0.85, max = 1.15) # ±15% variation
-baseline_price_range <- runif(nsamples, min = 3200, max = 4800) # ±20% variation
 
-# Combine parameters into a dataframe
-parameters <- tibble(
-  baseline_yield = baseline_yield_range,
-  baseline_price = baseline_price_range
-)
 
-# Apply the almond_yield_profit function to each parameter set
-sensitivity_results <- parameters %>%
-  pmap_dfr(~ almond_yield_profit(
-    data = data, # Replace `your_data` with the actual dataset
-    baseline_yield = ..1,
-    baseline_price = ..2
-  ) %>% mutate(baseline_yield = ..1, baseline_price = ..2))
 
-# Visualize Yields Through Time with Uncertainty
-ggplot(sensitivity_results, aes(factor(year), revenue, group = year)) +
-  geom_boxplot() +
+
+# Graph 2: Almond Profits Over Time with Parameter Uncertainty
+ggplot(final_results, aes(x = as.factor(year), y = revenue)) +
+  geom_boxplot(fill = "skyblue", color = "darkblue", outlier.color = "red", outlier.size = 2) +
   labs(
+    title = "Almond Profits Over Time with Uncertainty",
     x = "Year",
-    y = "Profit ($)",
-    title = "Almond Profits Through Time with Parameter Uncertainty"
+    y = "Profit ($)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5)
   )
-
-# Visualize Profits with Combined Parameter Uncertainty
-ggplot(sensitivity_results, aes(baseline_yield, revenue, col = baseline_price)) +
-  geom_point() +
-  labs(
-    x = "Baseline Yield (tons/acre)",
-    y = "Profit ($)",
-    title = "Impact of Yield and Price Uncertainty on Almond Profits"
-  )
-
-# Save Results (optional)
-# write.csv(sensitivity_results, "sensitivity_analysis_results.csv")
 
 ```
 
+
+```{r}
+ggplot(final_results, aes(x = year, y = revenue, group = simulation)) +
+  geom_line(alpha = 0.1) +
+  stat_summary(fun = mean, aes(group = 1), geom = "line", color = "blue", size = 1.2) +
+  labs(title = "Almond Profits Over Time with Parameter Uncertainty",
+       x = "Year", y = "Profit ($/acre)")
+
+```
+
+
+```{r}
+ggplot(final_results, aes(y = revenue)) +
+  geom_boxplot(fill = "skyblue", color = "darkblue", outlier.color = "red", outlier.size = 2) +
+  labs(
+    title = "Almond Profits Over Time with Uncertainty",
+    x = "overall",
+    y = "Profit ($)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5)
+  )
+```
+
+```{r}
+# Filter to the year 2000
+yield_2000 <- final_results %>% filter(year == 2000)
+
+# Scatterplot of baseline_yield vs total_yield
+ggplot(yield_2000, aes(x = baseline_price, y = revenue)) +
+  geom_point(alpha = 0.6, color = "darkorange") +
+ # geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+  labs(
+    title = "Sensitivity of Total Yield to Baseline Yield (Year 2000)",
+    x = "Baseline Yield (tons/acre)",
+    y = "Total Yield (tons/acre)"
+  ) +
+  theme_minimal()
+
+# Filter to the year 2000
+yield_2000 <- final_results %>% filter(year == 2000)
+
+# Scatterplot of baseline_yield vs total_yield
+ggplot(yield_2000, aes(x = baseline_yield, y = revenue)) +
+  geom_point(alpha = 0.6, color = "darkorange") +
+ # geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+  labs(
+    title = "Sensitivity of Total Yield to Baseline Yield (Year 2000)",
+    x = "Baseline Yield (tons/acre)",
+    y = "Total Yield (tons/acre)"
+  ) +
+  theme_minimal()
+
+```
 
